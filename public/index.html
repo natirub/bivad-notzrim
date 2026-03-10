@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ביחד נוצרים ✨</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ═══ SCREEN: Create Game ════════════════════════════════════════════════ -->
+  <div id="s-create" class="screen active">
+    <div class="logo">✨ ביחד נוצרים</div>
+    <div class="tagline">כל שניים יוצרים משהו חדש</div>
+    <div class="card">
+      <h2>צור משחק חדש</h2>
+      <div class="input-group">
+        <input id="create-name" type="text" placeholder="מה שמך?" maxlength="20" autocomplete="off" />
+      </div>
+      <button class="btn-primary" onclick="App.createGame()">צור משחק 🎮</button>
+    </div>
+  </div>
+
+  <!-- ═══ SCREEN: Join Game ═════════════════════════════════════════════════ -->
+  <div id="s-join" class="screen">
+    <div class="logo">✨ ביחד נוצרים</div>
+    <div class="tagline">חבר שלך מחכה לך!</div>
+    <div class="card">
+      <h2>הצטרף למשחק</h2>
+      <div class="input-group">
+        <input id="join-name" type="text" placeholder="מה שמך?" maxlength="20" autocomplete="off" />
+      </div>
+      <button class="btn-primary" onclick="App.joinGame()">הצטרף 🙌</button>
+    </div>
+  </div>
+
+  <!-- ═══ SCREEN: Waiting for Player 2 ══════════════════════════════════════ -->
+  <div id="s-waiting" class="screen">
+    <div class="logo">✨ ביחד נוצרים</div>
+    <div class="card waiting-card">
+      <div class="big-icon">⏳</div>
+      <h2>ממתין לשחקן שני...</h2>
+      <p class="subtle">שתף את הקישור הזה עם חבר:</p>
+      <div class="link-box">
+        <span id="share-link-text"></span>
+        <button class="copy-btn" onclick="App.copyLink()">העתק</button>
+      </div>
+      <div class="dots">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SCREEN: Game Start ════════════════════════════════════════════════ -->
+  <div id="s-gamestart" class="screen center-all">
+    <div class="gamestart-emoji">🎮</div>
+    <h1 class="gamestart-title">המשחק מתחיל!</h1>
+    <div id="players-vs" class="players-vs"></div>
+    <div class="rules-hint">
+      <p>סיבובים 1–5: <strong>אותה קטגוריה</strong> לשני השחקנים</p>
+      <p>סיבובים 6–10: <strong>קטגוריה שונה</strong> לכל שחקן</p>
+    </div>
+  </div>
+
+  <!-- ═══ SCREEN: Round (Playing) ═══════════════════════════════════════════ -->
+  <div id="s-round" class="screen">
+    <div class="round-header">
+      <span id="round-badge" class="round-badge">סיבוב 1 מתוך 10</span>
+      <span id="round-type-tag" class="type-tag"></span>
+    </div>
+
+    <div class="category-spotlight">
+      <div class="category-label" id="category-label">הקטגוריה:</div>
+      <div class="category-word" id="category-word">חיה</div>
+    </div>
+
+    <div class="card answer-card">
+      <p class="answer-prompt">כתוב את המחשבה הראשונה שלך:</p>
+      <div class="input-group">
+        <input id="answer-input" type="text" placeholder="מה עולה לך בראש?" maxlength="50" autocomplete="off" />
+      </div>
+      <button id="submit-btn" class="btn-primary" onclick="App.submitAnswer()">שלח ✓</button>
+    </div>
+  </div>
+
+  <!-- ═══ SCREEN: Submitted – waiting for opponent ══════════════════════════ -->
+  <div id="s-submitted" class="screen center-all">
+    <div class="big-icon">✅</div>
+    <h2>התשובה שלך נשלחה!</h2>
+    <p id="waiting-for-text" class="subtle">ממתין לשחקן השני...</p>
+    <div class="dots">
+      <span></span><span></span><span></span>
+    </div>
+  </div>
+
+  <!-- ═══ SCREEN: Generating image ══════════════════════════════════════════ -->
+  <div id="s-generating" class="screen center-all">
+    <div class="sparkle-ring">✨</div>
+    <h2>יוצרים את התמונה שלכם...</h2>
+    <p class="subtle">הבינה המלאכותית עובדת קשה 🤖</p>
+    <div class="progress-track"><div class="progress-fill"></div></div>
+  </div>
+
+  <!-- ═══ SCREEN: Round Result ══════════════════════════════════════════════ -->
+  <div id="s-result" class="screen">
+    <div class="round-header">
+      <span id="result-round-badge" class="round-badge">סיבוב 1</span>
+    </div>
+
+    <div id="result-img-wrap" class="result-img-wrap">
+      <img id="result-img" src="" alt="תמונה שנוצרה" />
+      <div id="result-no-img" class="no-img-msg" style="display:none">😔 לא הצלחנו ליצור תמונה הפעם</div>
+    </div>
+
+    <div id="result-players" class="result-players"></div>
+
+    <button id="next-btn" class="btn-primary btn-next" onclick="App.nextRound()">
+      הסיבוב הבא ←
+    </button>
+  </div>
+
+  <!-- ═══ SCREEN: Game Over / Gallery ═══════════════════════════════════════ -->
+  <div id="s-gameover" class="screen">
+    <div class="logo">✨ ביחד נוצרים</div>
+    <h1 class="gameover-title">המשחק נגמר! 🎉</h1>
+    <p class="subtle">הגלריה שלכם – 10 יצירות</p>
+    <div id="gallery" class="gallery"></div>
+    <button class="btn-primary btn-restart" onclick="location.href='/'">שחק שוב 🔄</button>
+  </div>
+
+  <!-- ═══ SCREEN: Error ═════════════════════════════════════════════════════ -->
+  <div id="s-error" class="screen center-all">
+    <div class="big-icon">😔</div>
+    <h2 id="error-msg">שגיאה</h2>
+    <button class="btn-primary" onclick="location.href='/'">חזור לדף הבית</button>
+  </div>
+
+  <!-- ═══ Lightbox ══════════════════════════════════════════════════════════ -->
+  <div id="lightbox" class="lightbox" onclick="App.closeLightbox()">
+    <img id="lightbox-img" src="" alt="תמונה מוגדלת" />
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
