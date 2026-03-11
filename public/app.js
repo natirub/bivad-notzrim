@@ -180,6 +180,13 @@ const App = {
     btn.textContent = 'ממתין...';
   },
 
+  confirmQuit() {
+    if (confirm('לעזוב את המשחק ולחזור לדף הבית?')) {
+      localStorage.removeItem('bvn_game');
+      location.href = '/';
+    }
+  },
+
   openLightbox(src) {
     document.getElementById('lightbox-img').src = src;
     document.getElementById('lightbox').classList.add('open');

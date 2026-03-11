@@ -163,6 +163,24 @@ body:has(.reconnect-banner[style*="flex"]) .screen {
   letter-spacing: 0.5px;
 }
 
+.hud-quit-btn {
+  display: block;
+  margin-top: 3px;
+  background: none;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  color: rgba(255,255,255,0.3);
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+.hud-quit-btn:hover {
+  border-color: #f87171;
+  color: #f87171;
+}
+
 /* ─── Fireworks ─────────────────────────────────── */
 
 .fireworks-container {
