@@ -7,33 +7,52 @@ const socket = io();
 // ─── State ────────────────────────────────────────────────────────────────────
 
 const state = {
-  gameId:        null,
-  playerName:    null,
-  playerIndex:   null,
-  opponentName:  null,
-  currentRound:  0,
-  shareLink:     null,
-  results:       []   // accumulated locally for gallery
+  gameId:       null,
+  playerName:   null,
+  playerIndex:  null,
+  opponentName: null,
+  currentRound: 0,
+  shareLink:    null,
+  myAnswer:     null,
+  results:      []
 };
 
 // ─── Screen management ────────────────────────────────────────────────────────
+
+const HUD_SCREENS = new Set([
+  's-gamestart', 's-round', 's-submitted', 's-generating', 's-guessing', 's-result'
+]);
 
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  const hud = document.getElementById('hud');
+  hud.style.display = HUD_SCREENS.has(id) ? 'flex' : 'none';
+  document.body.classList.toggle('has-hud', HUD_SCREENS.has(id));
+}
+
+// ─── HUD helpers ──────────────────────────────────────────────────────────────
+
+function updateHud(scores, roundNumber) {
+  if (scores) {
+    document.getElementById('hud-score0').textContent = scores[0];
+    document.getElementById('hud-score1').textContent = scores[1];
+  }
+  if (roundNumber !== undefined) {
+    document.getElementById('hud-round').textContent = `סיבוב ${roundNumber}`;
+  }
 }
 
 // ─── URL parsing ──────────────────────────────────────────────────────────────
 
-const urlParams  = new URLSearchParams(window.location.search);
-const urlGameId  = urlParams.get('game');
+const urlParams = new URLSearchParams(window.location.search);
+const urlGameId = urlParams.get('game');
 
-// On page load: show create or join screen
 window.addEventListener('DOMContentLoaded', () => {
   if (urlGameId) {
     showScreen('s-join');
-    // Pre-focus the name field
     setTimeout(() => document.getElementById('join-name').focus(), 100);
   } else {
     showScreen('s-create');
@@ -43,33 +62,28 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // ─── Enter-key helpers ────────────────────────────────────────────────────────
 
-document.getElementById('create-name').addEventListener('keydown', e => {
-  if (e.key === 'Enter') App.createGame();
-});
-document.getElementById('join-name').addEventListener('keydown', e => {
-  if (e.key === 'Enter') App.joinGame();
-});
-document.getElementById('answer-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') App.submitAnswer();
-});
+document.getElementById('create-name').addEventListener('keydown',  e => { if (e.key === 'Enter') App.createGame(); });
+document.getElementById('join-name').addEventListener('keydown',    e => { if (e.key === 'Enter') App.joinGame(); });
+document.getElementById('answer-input').addEventListener('keydown', e => { if (e.key === 'Enter') App.submitAnswer(); });
+document.getElementById('guess-input').addEventListener('keydown',  e => { if (e.key === 'Enter') App.submitGuess(); });
 
-// ─── Public API (called from HTML) ───────────────────────────────────────────
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 const App = {
 
   createGame() {
     const name = document.getElementById('create-name').value.trim();
     if (!name) return shake('create-name');
-    state.playerName   = name;
-    state.playerIndex  = 0;
+    state.playerName  = name;
+    state.playerIndex = 0;
     socket.emit('create-game', { playerName: name });
   },
 
   joinGame() {
     const name = document.getElementById('join-name').value.trim();
     if (!name) return shake('join-name');
-    state.playerName   = name;
-    state.playerIndex  = 1;
+    state.playerName  = name;
+    state.playerIndex = 1;
     socket.emit('join-game', { gameId: urlGameId, playerName: name });
   },
 
@@ -84,26 +98,63 @@ const App = {
     });
   },
 
+  playerReady() {
+    const btn = document.getElementById('ready-btn');
+    btn.disabled    = true;
+    btn.textContent = 'מוכן! ממתין לשחקן השני...';
+    document.getElementById('ready-status').textContent = 'ממתין שגם השחקן השני יהיה מוכן...';
+    socket.emit('player-ready');
+  },
+
   submitAnswer() {
     const input  = document.getElementById('answer-input');
     const answer = input.value.trim();
     if (!answer) return shake('answer-input');
 
+    state.myAnswer = answer;
     document.getElementById('submit-btn').disabled = true;
     input.disabled = true;
 
     socket.emit('submit-answer', { answer });
 
     const opName = state.opponentName || 'השחקן השני';
-    document.getElementById('waiting-for-text').textContent = `ממתין ל${opName}...`;
+    document.getElementById('submitted-title').textContent    = 'התשובה שלך נשלחה!';
+    document.getElementById('waiting-for-text').textContent   = `ממתין ל${opName}...`;
+    showScreen('s-submitted');
+  },
+
+  submitGuess() {
+    const input = document.getElementById('guess-input');
+    const guess = input.value.trim();
+    if (!guess) return shake('guess-input');
+
+    document.getElementById('guess-btn').disabled = true;
+    input.disabled = true;
+
+    socket.emit('submit-guess', { guess });
+
+    const opName = state.opponentName || 'השחקן השני';
+    document.getElementById('submitted-title').textContent  = 'הניחוש שלך נשלח!';
+    document.getElementById('waiting-for-text').textContent = `ממתין ש${opName} ינחש...`;
     showScreen('s-submitted');
   },
 
   nextRound() {
     socket.emit('next-round');
     const btn = document.getElementById('next-btn');
-    btn.disabled     = true;
-    btn.textContent  = 'ממתין...';
+    btn.disabled    = true;
+    btn.textContent = 'ממתין...';
+  },
+
+  retryGenerate() {
+    const btn = document.getElementById('retry-btn');
+    btn.disabled    = true;
+    btn.textContent = 'שולח בקשה...';
+    socket.emit('retry-generate');
+    setTimeout(() => {
+      btn.disabled    = false;
+      btn.textContent = '🔄 נסה שוב';
+    }, 10000);
   },
 
   openLightbox(src) {
@@ -121,12 +172,11 @@ const App = {
 function shake(inputId) {
   const el = document.getElementById(inputId);
   el.style.animation = 'none';
-  el.offsetHeight; // reflow
+  el.offsetHeight;
   el.style.animation = 'shake 0.4s ease';
   el.focus();
 }
 
-// Inject shake keyframe once
 const shakeStyle = document.createElement('style');
 shakeStyle.textContent = `
   @keyframes shake {
@@ -139,48 +189,68 @@ document.head.appendChild(shakeStyle);
 
 // ─── Socket events ────────────────────────────────────────────────────────────
 
-// Player 1: game was created on server
 socket.on('game-created', ({ gameId }) => {
-  state.gameId   = gameId;
+  state.gameId    = gameId;
   state.shareLink = `${location.origin}?game=${gameId}`;
-
   document.getElementById('share-link-text').textContent = state.shareLink;
   showScreen('s-waiting');
 });
 
-// Both players: game is starting
 socket.on('game-start', ({ players }) => {
-  // players[0] = creator, players[1] = joiner
   state.opponentName = players[1 - state.playerIndex];
 
+  // Populate HUD
+  document.getElementById('hud-name0').textContent = players[0];
+  document.getElementById('hud-name1').textContent = players[1];
+  updateHud([0, 0], '');
+
   document.getElementById('players-vs').innerHTML = `
-    <div class="player-chip">${players[0]}</div>
+    <div class="player-chip" style="border-color:#a78bfa">${players[0]}</div>
     <div class="vs-text">VS</div>
-    <div class="player-chip">${players[1]}</div>
+    <div class="player-chip" style="border-color:#22d3ee">${players[1]}</div>
   `;
 
+  // Reset ready button in case of rematch
+  const btn = document.getElementById('ready-btn');
+  btn.disabled    = false;
+  btn.textContent = 'מוכן! בואו נתחיל 🚀';
+  document.getElementById('ready-status').textContent = '';
+
   showScreen('s-gamestart');
-  // The server will fire 'round-start' after 2.5 s
 });
 
-// Round begins
 socket.on('round-start', ({ roundNumber, totalRounds, type, category }) => {
+  document.getElementById('rephrase-warning').style.display = 'none';
   state.currentRound = roundNumber;
 
   document.getElementById('round-badge').textContent = `סיבוב ${roundNumber} מתוך ${totalRounds}`;
-  document.getElementById('category-label').textContent =
-    type === 'different' ? 'הקטגוריה שלך:' : 'הקטגוריה:';
-  document.getElementById('category-word').textContent = category;
+  updateHud(null, roundNumber);
+
+  const spotlightWrap = document.getElementById('category-spotlight-wrap');
+  const freePrompt    = document.getElementById('free-prompt');
+
+  if (type === 'free') {
+    spotlightWrap.style.display = 'none';
+    freePrompt.style.display    = 'block';
+  } else {
+    spotlightWrap.style.display = '';
+    freePrompt.style.display    = 'none';
+    document.getElementById('category-label').textContent =
+      type === 'different' ? 'הקטגוריה שלך:' : 'הקטגוריה:';
+    document.getElementById('category-word').textContent = category;
+  }
 
   const typeTag = document.getElementById('round-type-tag');
   if (type === 'different') {
-    typeTag.textContent = '🎲 קטגוריה אישית';
+    typeTag.textContent   = '🎲 קטגוריה אישית';
+    typeTag.style.display = 'inline-block';
+  } else if (type === 'free') {
+    typeTag.textContent   = '🆓 חופשי';
     typeTag.style.display = 'inline-block';
   } else {
     typeTag.style.display = 'none';
   }
 
-  // Reset answer input
   const input = document.getElementById('answer-input');
   input.value    = '';
   input.disabled = false;
@@ -190,76 +260,248 @@ socket.on('round-start', ({ roundNumber, totalRounds, type, category }) => {
   setTimeout(() => input.focus(), 300);
 });
 
-// Opponent has submitted their answer (we already submitted and are on s-submitted)
 socket.on('opponent-answered', () => {
-  const waitingText = document.getElementById('waiting-for-text');
-  if (waitingText) {
-    waitingText.textContent = '✅ השחקן השני ענה! יוצרים תמונה...';
-  }
+  document.getElementById('waiting-for-text').textContent = '✅ השחקן השני ענה! יוצרים תמונה...';
 });
 
-// Server is generating the image
+// ─── Generating ───────────────────────────────────────────────────────────────
+
+let _retryTimer = null;
+
+function resetGeneratingScreen() {
+  document.getElementById('gen-title').textContent    = 'יוצרים את התמונה שלכם...';
+  document.getElementById('gen-subtitle').textContent = 'הבינה המלאכותית עובדת קשה 🤖';
+}
+
 socket.on('generating', () => {
+  resetGeneratingScreen();
+  const btn = document.getElementById('retry-btn');
+  btn.style.display = 'none';
+  btn.disabled      = false;
+  btn.textContent   = '🔄 נסה שוב';
+  clearTimeout(_retryTimer);
+  _retryTimer = setTimeout(() => { btn.style.display = 'inline-block'; }, 30000);
   showScreen('s-generating');
 });
 
-// Round result received
+socket.on('generation-retrying', ({ attempt, max }) => {
+  document.getElementById('gen-subtitle').textContent = `ניסיון ${attempt + 1} מתוך ${max}... 🔄`;
+});
+
+socket.on('generation-failed', () => {
+  clearTimeout(_retryTimer);
+  document.getElementById('retry-btn').style.display = 'none';
+  document.getElementById('gen-title').textContent    = '😔 לא הצלחנו ליצור תמונה';
+  document.getElementById('gen-subtitle').textContent = 'תנסו לנסח את התשובות מחדש...';
+  setTimeout(() => {
+    document.getElementById('rephrase-warning').style.display = 'block';
+    const input = document.getElementById('answer-input');
+    input.value    = '';
+    input.disabled = false;
+    document.getElementById('submit-btn').disabled = false;
+    showScreen('s-round');
+    resetGeneratingScreen();
+    setTimeout(() => input.focus(), 300);
+  }, 2500);
+});
+
+// ─── Guess phase ──────────────────────────────────────────────────────────────
+
+socket.on('guess-phase', ({ roundNumber, imageUrl, myAnswer }) => {
+  clearTimeout(_retryTimer);
+  document.getElementById('retry-btn').style.display = 'none';
+
+  document.getElementById('guess-round-badge').textContent  = `סיבוב ${roundNumber}`;
+  document.getElementById('guess-img').src                  = imageUrl;
+  document.getElementById('my-answer-reminder').textContent = myAnswer;
+  document.getElementById('opponent-name-guess').textContent = state.opponentName || 'השחקן השני';
+
+  const input = document.getElementById('guess-input');
+  input.value    = '';
+  input.disabled = false;
+  document.getElementById('guess-btn').disabled = false;
+
+  showScreen('s-guessing');
+  setTimeout(() => input.focus(), 300);
+});
+
+socket.on('opponent-guessed', () => {
+  if (document.getElementById('s-submitted').classList.contains('active')) {
+    document.getElementById('waiting-for-text').textContent = '✅ גם השחקן השני ניחש! מחשבים תוצאות...';
+  }
+});
+
+// ─── Round result ─────────────────────────────────────────────────────────────
+
 socket.on('round-result', (data) => {
+  clearTimeout(_retryTimer);
+  document.getElementById('retry-btn').style.display = 'none';
   state.results.push(data);
 
-  // Round badge
   document.getElementById('result-round-badge').textContent = `סיבוב ${data.roundNumber}`;
 
-  // Image
-  const img      = document.getElementById('result-img');
-  const noImg    = document.getElementById('result-no-img');
+  // Update HUD scores
+  updateHud(data.scores);
 
+  // Image
+  const img   = document.getElementById('result-img');
+  const noImg = document.getElementById('result-no-img');
   if (data.imageUrl) {
-    img.src            = data.imageUrl;
-    img.style.display  = 'block';
+    img.src             = data.imageUrl;
+    img.style.display   = 'block';
     noImg.style.display = 'none';
-    // Click to lightbox
     img.onclick = () => App.openLightbox(data.imageUrl);
   } else {
-    img.style.display  = 'none';
+    img.style.display   = 'none';
     noImg.style.display = 'flex';
   }
 
-  // Player cards
+  // Points banner
+  const myPts = data.pointsThisRound[state.playerIndex];
+  const banner = document.getElementById('result-points-banner');
+  banner.innerHTML = myPts > 0
+    ? `<span class="pts-earned pts-correct">+${myPts} נקודות! ניחשת נכון 🎯</span>`
+    : `<span class="pts-earned pts-wrong">לא ניחשת נכון הפעם 😅</span>`;
+
+  // Player cards with guess results
   document.getElementById('result-players').innerHTML =
     data.players.map((p, i) => {
-      const color = i === 0 ? '#a78bfa' : '#22d3ee';
+      const color     = i === 0 ? '#a78bfa' : '#22d3ee';
+      const guessIcon = p.guessedCorrectly ? '✅' : '❌';
       return `
         <div class="player-result-card" style="border-top: 3px solid ${color}">
           <div class="player-result-name">${p.name}</div>
           ${p.category ? `<div class="player-result-category">${p.category}</div>` : ''}
           <div class="player-result-answer">"${p.answer}"</div>
+          <div class="player-result-guess">${guessIcon} ניחש: "${p.guess}"</div>
         </div>
         ${i === 0 ? '<div class="result-plus">+</div>' : ''}
       `;
     }).join('');
 
-  // Next button label
+  // Running totals
+  const [p0, p1] = data.players;
+  document.getElementById('result-total-scores').innerHTML = `
+    <div class="score-chip" style="border-color:#a78bfa">
+      <span class="score-name">${p0.name}</span>
+      <span class="score-val">${data.scores[0]}</span>
+    </div>
+    <div class="score-label">ניקוד</div>
+    <div class="score-chip" style="border-color:#22d3ee">
+      <span class="score-name">${p1.name}</span>
+      <span class="score-val">${data.scores[1]}</span>
+    </div>
+  `;
+
+  // Next button
   const nextBtn = document.getElementById('next-btn');
-  nextBtn.disabled    = false;
-  nextBtn.textContent = data.roundNumber >= 10 ? '🎨 ראה את הגלריה' : `סיבוב ${data.roundNumber + 1} ←`;
+  nextBtn.disabled = false;
+  if (data.roundNumber >= 10) {
+    nextBtn.textContent = '🏆 ראה מי ניצח!';
+    nextBtn.classList.add('btn-winner');
+  } else {
+    nextBtn.textContent = `סיבוב ${data.roundNumber + 1} ←`;
+    nextBtn.classList.remove('btn-winner');
+  }
 
   showScreen('s-result');
 });
 
-// Game over — show gallery
-socket.on('game-over', ({ results }) => {
+// ─── Game over ────────────────────────────────────────────────────────────────
+
+socket.on('game-over', ({ results, scores, players }) => {
   buildGallery(results.length ? results : state.results);
+
+  const [s0, s1] = scores || [0, 0];
+  const [n0, n1] = players || ['שחקן 1', 'שחקן 2'];
+
+  let winnerText;
+  if (s0 > s1)      winnerText = `🏆 ${n0} ניצח!`;
+  else if (s1 > s0) winnerText = `🏆 ${n1} ניצח!`;
+  else              winnerText = '🤝 תיקו!';
+
+  document.getElementById('final-winner').textContent = winnerText;
+  document.getElementById('final-scores-display').innerHTML = `
+    <span class="final-score-chip" style="color:#a78bfa">${n0}: <strong>${s0}</strong></span>
+    <span class="final-score-sep">|</span>
+    <span class="final-score-chip" style="color:#22d3ee">${n1}: <strong>${s1}</strong></span>
+  `;
+
   showScreen('s-gameover');
+  launchFireworks();
 });
 
-// Opponent disconnected
+// ─── Fireworks ────────────────────────────────────────────────────────────────
+
+function launchFireworks() {
+  const container = document.getElementById('fireworks-container');
+  container.innerHTML = '';
+
+  const colors = ['#a78bfa', '#ec4899', '#22d3ee', '#fbbf24', '#34d399', '#f87171'];
+  const BURSTS = 8;
+
+  for (let b = 0; b < BURSTS; b++) {
+    setTimeout(() => {
+      const burst = document.createElement('div');
+      burst.className    = 'firework-burst';
+      burst.style.left   = `${15 + Math.random() * 70}%`;
+      burst.style.top    = `${5  + Math.random() * 50}%`;
+      container.appendChild(burst);
+
+      const PARTICLES = 14;
+      for (let p = 0; p < PARTICLES; p++) {
+        const particle = document.createElement('div');
+        particle.className = 'firework-particle';
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        const dist  = 55 + Math.random() * 55;
+        const angle = (p / PARTICLES) * 360;
+        particle.style.cssText = `
+          --color: ${color};
+          --angle: ${angle}deg;
+          --dist: ${dist}px;
+        `;
+        burst.appendChild(particle);
+      }
+
+      setTimeout(() => burst.remove(), 1200);
+    }, b * 500);
+  }
+
+  // Second wave
+  setTimeout(() => launchFireworksWave(container, colors, 5), BURSTS * 500 + 200);
+}
+
+function launchFireworksWave(container, colors, count) {
+  for (let b = 0; b < count; b++) {
+    setTimeout(() => {
+      const burst = document.createElement('div');
+      burst.className    = 'firework-burst';
+      burst.style.left   = `${10 + Math.random() * 80}%`;
+      burst.style.top    = `${10 + Math.random() * 40}%`;
+      container.appendChild(burst);
+
+      for (let p = 0; p < 10; p++) {
+        const particle = document.createElement('div');
+        particle.className = 'firework-particle';
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        const dist  = 40 + Math.random() * 40;
+        const angle = (p / 10) * 360;
+        particle.style.cssText = `--color:${color};--angle:${angle}deg;--dist:${dist}px;`;
+        burst.appendChild(particle);
+      }
+
+      setTimeout(() => burst.remove(), 1000);
+    }, b * 350);
+  }
+}
+
+// ─── Connection events ────────────────────────────────────────────────────────
+
 socket.on('opponent-disconnected', () => {
   document.getElementById('error-msg').textContent = '😔 השחקן השני התנתק מהמשחק';
   showScreen('s-error');
 });
 
-// Server error
 socket.on('error', ({ msg }) => {
   document.getElementById('error-msg').textContent = msg;
   showScreen('s-error');
@@ -285,7 +527,9 @@ function buildGallery(results) {
 
     const typeLabel = r.type === 'same'
       ? `<span style="color:#a78bfa">${r.category}</span>`
-      : `<span style="color:#22d3ee">קטגוריות שונות</span>`;
+      : r.type === 'different'
+        ? `<span style="color:#22d3ee">קטגוריות שונות</span>`
+        : `<span style="color:#34d399">חופשי</span>`;
 
     return `
       <div class="gallery-item">

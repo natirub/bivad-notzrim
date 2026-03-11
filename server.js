@@ -2,45 +2,39 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
 const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const CATEGORIES = [
-  'כלי תחבורה',
-  'חיה',
-  'פרי',
-  'ירק',
-  'מכשיר חשמלי',
-  'פריט לבוש',
-  'רהיט',
-  'כלי נגינה',
-  'כלי עבודה',
-  'אוכל'
+  'כלי תחבורה', 'חיה', 'פרי', 'ירק', 'מכשיר חשמלי',
+  'פריט לבוש', 'רהיט', 'כלי נגינה', 'כלי עבודה', 'אוכל'
 ];
 
-// English translations for better image generation prompts
 const CAT_EN = {
   'כלי תחבורה': 'vehicle',
-  'חיה': 'animal',
-  'פרי': 'fruit',
-  'ירק': 'vegetable',
-  'מכשיר חשמלי': 'electrical appliance',
-  'פריט לבוש': 'clothing item',
-  'רהיט': 'furniture',
-  'כלי נגינה': 'musical instrument',
-  'כלי עבודה': 'tool',
-  'אוכל': 'food'
+  'חיה':        'animal',
+  'פרי':        'fruit',
+  'ירק':        'vegetable',
+  'מכשיר חשמלי':'electrical appliance',
+  'פריט לבוש':  'clothing item',
+  'רהיט':       'furniture',
+  'כלי נגינה':  'musical instrument',
+  'כלי עבודה':  'tool',
+  'אוכל':       'food'
 };
 
-const TOTAL_ROUNDS = 10;
-const SAME_CAT_ROUNDS = 5; // rounds 1-5 share a category; rounds 6-10 each player gets their own
+const TOTAL_ROUNDS    = 10;
+const SAME_CAT_ROUNDS = 3;   // rounds 1-3: same category
+const DIFF_CAT_ROUNDS = 3;   // rounds 4-6: different category per player
+                              // rounds 7-10: free (no category)
+const GUESS_POINTS    = 5;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -57,24 +51,29 @@ function generateId() {
   return Math.random().toString(36).substr(2, 6).toUpperCase();
 }
 
-// Build the 10 rounds: first 5 share a category, last 5 each player gets a different one
 function buildRounds() {
   const s1 = shuffle(CATEGORIES);
   const rounds = [];
 
-  // Rounds 1-5: same category for both
+  // Rounds 1-3: same category
   for (let i = 0; i < SAME_CAT_ROUNDS; i++) {
     rounds.push({ type: 'same', category: s1[i] });
   }
 
-  // Rounds 6-10: different categories per player (need 10 slots; reuse shuffled pool)
+  // Rounds 4-6: different category per player
   const s2 = shuffle(CATEGORIES);
-  for (let i = 0; i < TOTAL_ROUNDS - SAME_CAT_ROUNDS; i++) {
+  for (let i = 0; i < DIFF_CAT_ROUNDS; i++) {
     rounds.push({
       type: 'different',
-      category0: s2[i * 2 % s2.length],
+      category0: s2[(i * 2)     % s2.length],
       category1: s2[(i * 2 + 1) % s2.length]
     });
+  }
+
+  // Rounds 7-10: free
+  const freeRounds = TOTAL_ROUNDS - SAME_CAT_ROUNDS - DIFF_CAT_ROUNDS;
+  for (let i = 0; i < freeRounds; i++) {
+    rounds.push({ type: 'free' });
   }
 
   return rounds;
@@ -82,25 +81,50 @@ function buildRounds() {
 
 // ─── Gemini image generation ──────────────────────────────────────────────────
 
-async function generateImage(prompt) {
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash-exp',
-    generationConfig: {
-      responseModalities: ['IMAGE', 'TEXT']
+const API_TIMEOUT_MS = 30_000;
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Gemini timeout after ${ms}ms`)), ms)
+    )
+  ]);
+}
+
+async function generateImage(prompt, gameId) {
+  const MAX_ATTEMPTS = 2;
+  let lastErr;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const result = await withTimeout(
+        genAI.models.generateContent({
+          model: 'gemini-3.1-flash-image-preview',
+          contents: prompt,
+          config: { responseModalities: ['TEXT', 'IMAGE'] }
+        }),
+        API_TIMEOUT_MS
+      );
+
+      for (const part of result.candidates[0].content.parts) {
+        if (part.inlineData) {
+          return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        }
+      }
+      lastErr = new Error('No image in Gemini response');
+    } catch (err) {
+      lastErr = err;
     }
-  });
 
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }]
-  });
-
-  const parts = result.response.candidates[0].content.parts;
-  for (const part of parts) {
-    if (part.inlineData) {
-      return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+    if (attempt < MAX_ATTEMPTS) {
+      console.warn(`[generateImage] Attempt ${attempt} failed: ${lastErr.message}. Retrying...`);
+      io.to(gameId).emit('generation-retrying', { attempt, max: MAX_ATTEMPTS });
+      await new Promise(r => setTimeout(r, 2000));
     }
   }
-  throw new Error('No image in Gemini response');
+
+  throw lastErr;
 }
 
 // ─── Game state ───────────────────────────────────────────────────────────────
@@ -111,7 +135,6 @@ const games = {};
 
 io.on('connection', (socket) => {
 
-  // Player 1 creates a game
   socket.on('create-game', ({ playerName }) => {
     const gameId = generateId();
     games[gameId] = {
@@ -120,9 +143,14 @@ io.on('connection', (socket) => {
       players: [{ id: socket.id, name: playerName.trim() }],
       rounds: buildRounds(),
       currentRound: 0,
-      answers: {},    // answers[roundIndex][playerIndex] = string
+      answers: {},
+      guesses: {},
+      scores: [0, 0],
       results: [],
-      _advancing: false
+      _advancing: false,
+      _generating: false,
+      _pendingResult: null,
+      _readyCount: 0
     };
 
     socket.join(gameId);
@@ -132,12 +160,11 @@ io.on('connection', (socket) => {
     socket.emit('game-created', { gameId, playerName: playerName.trim() });
   });
 
-  // Player 2 joins
   socket.on('join-game', ({ gameId, playerName }) => {
     const id = (gameId || '').toUpperCase().trim();
     const game = games[id];
 
-    if (!game)            return socket.emit('error', { msg: 'משחק לא נמצא. בדוק את הקישור.' });
+    if (!game)                  return socket.emit('error', { msg: 'משחק לא נמצא. בדוק את הקישור.' });
     if (game.players.length >= 2) return socket.emit('error', { msg: 'המשחק כבר מלא.' });
     if (game.status !== 'waiting') return socket.emit('error', { msg: 'המשחק כבר התחיל.' });
 
@@ -148,15 +175,20 @@ io.on('connection', (socket) => {
     socket.data.gameId = id;
     socket.data.playerIndex = 1;
 
-    io.to(id).emit('game-start', {
-      players: game.players.map(p => p.name)
-    });
-
-    // Short dramatic pause before round 1
-    setTimeout(() => startRound(id), 2500);
+    io.to(id).emit('game-start', { players: game.players.map(p => p.name) });
+    // Wait for both players to click "ready" before starting round 1
   });
 
-  // Player submits their answer for the current round
+  socket.on('player-ready', () => {
+    const { gameId } = socket.data;
+    const game = games[gameId];
+    if (!game || game.status !== 'playing') return;
+    game._readyCount++;
+    if (game._readyCount >= 2) {
+      startRound(gameId);
+    }
+  });
+
   socket.on('submit-answer', ({ answer }) => {
     const { gameId, playerIndex } = socket.data;
     const game = games[gameId];
@@ -166,17 +198,31 @@ io.on('connection', (socket) => {
     if (!game.answers[ri]) game.answers[ri] = {};
     game.answers[ri][playerIndex] = (answer || '').trim();
 
-    // Tell the other player their opponent has answered
     socket.to(gameId).emit('opponent-answered');
 
-    // If both answered, generate the image
     const ans = game.answers[ri];
     if (ans[0] !== undefined && ans[1] !== undefined) {
       processRound(gameId);
     }
   });
 
-  // Either player clicks "Next Round"
+  socket.on('submit-guess', ({ guess }) => {
+    const { gameId, playerIndex } = socket.data;
+    const game = games[gameId];
+    if (!game || game.status !== 'playing') return;
+
+    const ri = game.currentRound;
+    if (!game.guesses[ri]) game.guesses[ri] = {};
+    game.guesses[ri][playerIndex] = (guess || '').trim();
+
+    socket.to(gameId).emit('opponent-guessed');
+
+    const g = game.guesses[ri];
+    if (g[0] !== undefined && g[1] !== undefined) {
+      resolveGuesses(gameId);
+    }
+  });
+
   socket.on('next-round', () => {
     const { gameId } = socket.data;
     const game = games[gameId];
@@ -187,12 +233,27 @@ io.on('connection', (socket) => {
 
     if (game.currentRound >= TOTAL_ROUNDS) {
       game.status = 'finished';
-      io.to(gameId).emit('game-over', { results: game.results });
+      io.to(gameId).emit('game-over', {
+        results: game.results,
+        scores:  game.scores,
+        players: game.players.map(p => p.name)
+      });
     } else {
       startRound(gameId);
     }
 
     setTimeout(() => { game._advancing = false; }, 800);
+  });
+
+  socket.on('retry-generate', () => {
+    const { gameId } = socket.data;
+    const game = games[gameId];
+    if (!game || game.status !== 'playing') return;
+    const ri = game.currentRound;
+    const ans = game.answers[ri];
+    if (!ans || ans[0] === undefined || ans[1] === undefined) return;
+    io.to(gameId).emit('generating');
+    processRound(gameId);
   });
 
   socket.on('disconnect', () => {
@@ -211,30 +272,35 @@ function startRound(gameId) {
 
   if (round.type === 'same') {
     io.to(gameId).emit('round-start', {
-      roundNumber,
-      totalRounds: TOTAL_ROUNDS,
-      type: 'same',
-      category: round.category
+      roundNumber, totalRounds: TOTAL_ROUNDS,
+      type: 'same', category: round.category
     });
-  } else {
-    // Each player receives their own category privately
+  } else if (round.type === 'different') {
     getGameSockets(gameId).forEach((s, idx) => {
       if (!s) return;
       s.emit('round-start', {
-        roundNumber,
-        totalRounds: TOTAL_ROUNDS,
+        roundNumber, totalRounds: TOTAL_ROUNDS,
         type: 'different',
         category: idx === 0 ? round.category0 : round.category1
       });
+    });
+  } else {
+    // free round
+    io.to(gameId).emit('round-start', {
+      roundNumber, totalRounds: TOTAL_ROUNDS,
+      type: 'free'
     });
   }
 }
 
 async function processRound(gameId) {
   const game = games[gameId];
-  const ri = game.currentRound;
+  if (game._generating) return;
+  game._generating = true;
+
+  const ri    = game.currentRound;
   const round = game.rounds[ri];
-  const ans = game.answers[ri];
+  const ans   = game.answers[ri];
   const [p0, p1] = game.players;
 
   io.to(gameId).emit('generating');
@@ -244,38 +310,83 @@ async function processRound(gameId) {
 
   if (round.type === 'same') {
     const catEn = CAT_EN[round.category] || round.category;
-    prompt = `create a ${catEn} that combines "${ans[0]}" and "${ans[1]}", 3d pixar or disney style, vibrant colors, white background`;
+    prompt = `create a brand new and single ${catEn} that assembles "${ans[0]}" and "${ans[1]}" into one new thing, realistic, 3d animated style, vibrant colors, white background, and no text`;
     resultData = {
-      roundNumber: ri + 1,
-      type: 'same',
-      category: round.category,
+      roundNumber: ri + 1, type: 'same', category: round.category,
       players: [
         { name: p0.name, answer: ans[0] },
         { name: p1.name, answer: ans[1] }
       ]
     };
-  } else {
-    const cat0En = CAT_EN[round.category0] || round.category0;
-    const cat1En = CAT_EN[round.category1] || round.category1;
-    prompt = `create something completely new and creative that combines "${ans[0]}" (a ${cat0En}) and "${ans[1]}" (a ${cat1En}), 3d pixar or disney style, vibrant colors, white background`;
+  } else if (round.type === 'different') {
+    prompt = `create a single something completely new and creative that assembles "${ans[0]}" and "${ans[1]}", 3d animated style, vibrant colors, white background and no text`;
     resultData = {
-      roundNumber: ri + 1,
-      type: 'different',
+      roundNumber: ri + 1, type: 'different',
       players: [
         { name: p0.name, answer: ans[0], category: round.category0 },
         { name: p1.name, answer: ans[1], category: round.category1 }
       ]
     };
+  } else {
+    // free
+    prompt = `create a single something completely new and creative that assembles "${ans[0]}" and "${ans[1]}", 3d animated style, vibrant colors, white background and no text`;
+    resultData = {
+      roundNumber: ri + 1, type: 'free',
+      players: [
+        { name: p0.name, answer: ans[0] },
+        { name: p1.name, answer: ans[1] }
+      ]
+    };
   }
 
   try {
-    resultData.imageUrl = await generateImage(prompt);
+    resultData.imageUrl = await generateImage(prompt, gameId);
   } catch (err) {
-    console.error(`[Round ${ri + 1}] Image generation failed:`, err.message);
-    resultData.imageUrl = null;
+    console.error(`[Round ${ri + 1}] All attempts failed:`, err.message);
+    game._generating = false;
+    game.answers[ri] = {};
+    io.to(gameId).emit('generation-failed', { roundNumber: ri + 1 });
+    return;
   }
 
+  game._generating = false;
+  game._pendingResult = resultData;
+
+  // Send each player into guess phase with the image + their own answer as reminder
+  const sockets = getGameSockets(gameId);
+  sockets.forEach((s, idx) => {
+    if (!s) return;
+    s.emit('guess-phase', {
+      roundNumber: ri + 1,
+      imageUrl:    resultData.imageUrl,
+      myAnswer:    ans[idx]
+    });
+  });
+}
+
+function resolveGuesses(gameId) {
+  const game = games[gameId];
+  const ri   = game.currentRound;
+  const ans  = game.answers[ri];
+  const g    = game.guesses[ri];
+
+  const norm = s => (s || '').trim().toLowerCase();
+  const correct0 = norm(g[0]) === norm(ans[1]); // p0 guesses p1's answer
+  const correct1 = norm(g[1]) === norm(ans[0]); // p1 guesses p0's answer
+
+  if (correct0) game.scores[0] += GUESS_POINTS;
+  if (correct1) game.scores[1] += GUESS_POINTS;
+
+  const resultData = game._pendingResult;
+  resultData.players[0].guessedCorrectly = correct0;
+  resultData.players[0].guess = g[0];
+  resultData.players[1].guessedCorrectly = correct1;
+  resultData.players[1].guess = g[1];
+  resultData.scores          = [...game.scores];
+  resultData.pointsThisRound = [correct0 ? GUESS_POINTS : 0, correct1 ? GUESS_POINTS : 0];
+
   game.results.push(resultData);
+  game._pendingResult = null;
   io.to(gameId).emit('round-result', resultData);
 }
 

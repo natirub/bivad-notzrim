@@ -10,6 +10,24 @@
 </head>
 <body>
 
+  <!-- ═══ Persistent HUD (player names + scores) ═════════════════════════════ -->
+  <div id="hud" class="hud" style="display:none">
+    <div class="hud-player hud-p0">
+      <span id="hud-name0" class="hud-name"></span>
+      <span id="hud-score0" class="hud-score">0</span>
+    </div>
+    <div class="hud-center">
+      <span id="hud-round" class="hud-round"></span>
+    </div>
+    <div class="hud-player hud-p1">
+      <span id="hud-score1" class="hud-score">0</span>
+      <span id="hud-name1" class="hud-name"></span>
+    </div>
+  </div>
+
+  <!-- ═══ Fireworks overlay (game over) ══════════════════════════════════════ -->
+  <div id="fireworks-container" class="fireworks-container"></div>
+
   <!-- ═══ SCREEN: Create Game ════════════════════════════════════════════════ -->
   <div id="s-create" class="screen active">
     <div class="logo">✨ ביחד נוצרים</div>
@@ -59,21 +77,36 @@
     <h1 class="gamestart-title">המשחק מתחיל!</h1>
     <div id="players-vs" class="players-vs"></div>
     <div class="rules-hint">
-      <p>סיבובים 1–5: <strong>אותה קטגוריה</strong> לשני השחקנים</p>
-      <p>סיבובים 6–10: <strong>קטגוריה שונה</strong> לכל שחקן</p>
+      <p>סיבובים 1–3: <strong>אותה קטגוריה</strong> לשני השחקנים</p>
+      <p>סיבובים 4–6: <strong>קטגוריה שונה</strong> לכל שחקן</p>
+      <p>סיבובים 7–10: <strong>חופשי</strong> – כתבו כל מה שעולה לכם</p>
+      <p class="rules-score-hint">נחשו נכון מה כתב השחקן השני = <strong>5 נקודות!</strong></p>
     </div>
+    <button id="ready-btn" class="btn-primary btn-ready" onclick="App.playerReady()">
+      מוכן! בואו נתחיל 🚀
+    </button>
+    <p id="ready-status" class="subtle ready-status"></p>
   </div>
 
   <!-- ═══ SCREEN: Round (Playing) ═══════════════════════════════════════════ -->
   <div id="s-round" class="screen">
+    <div id="rephrase-warning" class="rephrase-warning" style="display:none">
+      ⚠️ לא הצלחנו ליצור תמונה. נסו לנסח את התשובה מחדש!
+    </div>
     <div class="round-header">
       <span id="round-badge" class="round-badge">סיבוב 1 מתוך 10</span>
       <span id="round-type-tag" class="type-tag"></span>
     </div>
 
-    <div class="category-spotlight">
-      <div class="category-label" id="category-label">הקטגוריה:</div>
-      <div class="category-word" id="category-word">חיה</div>
+    <div id="category-spotlight-wrap">
+      <div class="category-spotlight">
+        <div class="category-label" id="category-label">הקטגוריה:</div>
+        <div class="category-word" id="category-word">חיה</div>
+      </div>
+    </div>
+
+    <div id="free-prompt" class="free-prompt" style="display:none">
+      <div class="free-prompt-text">כתבו כל מה שעולה לכם בראש!</div>
     </div>
 
     <div class="card answer-card">
@@ -88,7 +121,7 @@
   <!-- ═══ SCREEN: Submitted – waiting for opponent ══════════════════════════ -->
   <div id="s-submitted" class="screen center-all">
     <div class="big-icon">✅</div>
-    <h2>התשובה שלך נשלחה!</h2>
+    <h2 id="submitted-title">התשובה שלך נשלחה!</h2>
     <p id="waiting-for-text" class="subtle">ממתין לשחקן השני...</p>
     <div class="dots">
       <span></span><span></span><span></span>
@@ -98,9 +131,34 @@
   <!-- ═══ SCREEN: Generating image ══════════════════════════════════════════ -->
   <div id="s-generating" class="screen center-all">
     <div class="sparkle-ring">✨</div>
-    <h2>יוצרים את התמונה שלכם...</h2>
-    <p class="subtle">הבינה המלאכותית עובדת קשה 🤖</p>
+    <h2 id="gen-title">יוצרים את התמונה שלכם...</h2>
+    <p id="gen-subtitle" class="subtle">הבינה המלאכותית עובדת קשה 🤖</p>
     <div class="progress-track"><div class="progress-fill"></div></div>
+    <button id="retry-btn" class="btn-secondary" style="display:none;margin-top:1.5rem" onclick="App.retryGenerate()">🔄 נסה שוב</button>
+  </div>
+
+  <!-- ═══ SCREEN: Guessing ══════════════════════════════════════════════════ -->
+  <div id="s-guessing" class="screen">
+    <div class="round-header">
+      <span id="guess-round-badge" class="round-badge">סיבוב 1</span>
+      <span class="type-tag guess-tag">🔍 זמן לנחש!</span>
+    </div>
+
+    <div class="result-img-wrap guess-img-wrap">
+      <img id="guess-img" src="" alt="התמונה שנוצרה" onclick="App.openLightbox(this.src)" />
+    </div>
+
+    <div class="card guess-card">
+      <div class="my-answer-reminder">
+        <span class="reminder-label">כתבת:</span>
+        <span id="my-answer-reminder" class="reminder-value"></span>
+      </div>
+      <p class="answer-prompt">מה לדעתך כתב <strong id="opponent-name-guess"></strong>?</p>
+      <div class="input-group">
+        <input id="guess-input" type="text" placeholder="הניחוש שלך..." maxlength="50" autocomplete="off" />
+      </div>
+      <button id="guess-btn" class="btn-primary" onclick="App.submitGuess()">שלח ניחוש ✓</button>
+    </div>
   </div>
 
   <!-- ═══ SCREEN: Round Result ══════════════════════════════════════════════ -->
@@ -114,7 +172,11 @@
       <div id="result-no-img" class="no-img-msg" style="display:none">😔 לא הצלחנו ליצור תמונה הפעם</div>
     </div>
 
+    <div id="result-points-banner" class="points-banner"></div>
+
     <div id="result-players" class="result-players"></div>
+
+    <div id="result-total-scores" class="total-scores-row"></div>
 
     <button id="next-btn" class="btn-primary btn-next" onclick="App.nextRound()">
       הסיבוב הבא ←
@@ -125,7 +187,9 @@
   <div id="s-gameover" class="screen">
     <div class="logo">✨ ביחד נוצרים</div>
     <h1 class="gameover-title">המשחק נגמר! 🎉</h1>
-    <p class="subtle">הגלריה שלכם – 10 יצירות</p>
+    <div id="final-winner" class="final-winner"></div>
+    <div id="final-scores-display" class="final-scores-display"></div>
+    <p class="subtle" style="margin-top:20px">הגלריה שלכם – 10 יצירות</p>
     <div id="gallery" class="gallery"></div>
     <button class="btn-primary btn-restart" onclick="location.href='/'">שחק שוב 🔄</button>
   </div>

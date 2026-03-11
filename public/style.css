@@ -27,6 +27,9 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Extra bottom padding when HUD is visible */
+body.has-hud .screen { padding-bottom: 72px; }
+
 html, body {
   height: 100%;
   font-family: 'Heebo', 'Arial Hebrew', sans-serif;
@@ -59,6 +62,131 @@ html, body {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(14px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── HUD (persistent scoreboard) ──────────────── */
+
+.hud {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: rgba(15,12,41,0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-top: 1px solid var(--border);
+  z-index: 200;
+  gap: 8px;
+}
+
+.hud-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.hud-p1 { justify-content: flex-end; flex-direction: row-reverse; }
+
+.hud-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-p0 .hud-score {
+  background: rgba(167,139,250,0.2);
+  border: 1.5px solid #a78bfa;
+  color: #a78bfa;
+}
+
+.hud-p1 .hud-score {
+  background: rgba(34,211,238,0.2);
+  border: 1.5px solid #22d3ee;
+  color: #22d3ee;
+}
+
+.hud-score {
+  font-size: 1.05rem;
+  font-weight: 900;
+  min-width: 36px;
+  text-align: center;
+  border-radius: 8px;
+  padding: 3px 8px;
+  transition: transform 0.2s;
+}
+
+.hud-center {
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.hud-round {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ─── Fireworks ─────────────────────────────────── */
+
+.fireworks-container {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 500;
+  overflow: hidden;
+}
+
+.firework-burst {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.firework-particle {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color);
+  transform: rotate(var(--angle)) translateX(0);
+  animation: fw-fly 1s ease-out forwards;
+}
+
+@keyframes fw-fly {
+  0%   { transform: rotate(var(--angle)) translateX(0);          opacity: 1; }
+  70%  { opacity: 1; }
+  100% { transform: rotate(var(--angle)) translateX(var(--dist)); opacity: 0; }
+}
+
+/* ─── Ready button (gamestart) ──────────────────── */
+
+.btn-ready {
+  max-width: 300px;
+  margin-top: 8px;
+  font-size: 1.1rem;
+}
+
+.ready-status {
+  min-height: 1.4em;
+}
+
+/* ─── Winner button style ───────────────────────── */
+
+.btn-winner {
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  font-size: 1.15rem;
 }
 
 /* ─── Logo ─────────────────────────────────────── */
@@ -149,6 +277,35 @@ html, body {
   cursor: not-allowed;
   transform: none;
 }
+
+.rephrase-warning {
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  border-radius: var(--radius-sm);
+  color: #fbbf24;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 10px 16px;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.btn-secondary {
+  background: transparent;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-radius: var(--radius-sm);
+  color: rgba(255,255,255,0.75);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 10px 24px;
+  transition: border-color 0.2s, color 0.2s, transform 0.15s;
+  width: auto;
+}
+.btn-secondary:hover  { border-color: #fff; color: #fff; transform: translateY(-1px); }
+.btn-secondary:active { transform: scale(0.98); }
+.btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 
 .copy-btn {
   background: transparent;
@@ -381,6 +538,191 @@ html, body {
   0%   { width: 15%; margin-right: 0; }
   50%  { width: 60%; }
   100% { width: 15%; margin-right: 85%; }
+}
+
+/* ─── Free round prompt ────────────────────────── */
+
+.free-prompt {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.free-prompt-text {
+  font-size: 1.8rem;
+  font-weight: 900;
+  background: linear-gradient(135deg, #34d399, #22d3ee);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: slideIn 0.4s ease;
+}
+
+/* ─── Rules score hint ──────────────────────────── */
+
+.rules-score-hint {
+  margin-top: 8px;
+  color: #a78bfa;
+  font-size: 0.9rem;
+}
+.rules-score-hint strong { color: #fbbf24; }
+
+/* ─── Guess screen ──────────────────────────────── */
+
+.guess-tag {
+  background: rgba(34,211,238,0.15);
+  border: 1px solid rgba(34,211,238,0.4);
+  color: #67e8f9;
+}
+
+.guess-img-wrap {
+  margin-bottom: 16px;
+  max-height: 280px;
+}
+
+.guess-img-wrap img {
+  width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+  cursor: zoom-in;
+}
+
+.guess-card {
+  max-width: 460px;
+  width: 100%;
+  gap: 14px;
+}
+
+.my-answer-reminder {
+  background: rgba(167,139,250,0.12);
+  border: 1px solid rgba(167,139,250,0.3);
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.reminder-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #a78bfa;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.reminder-value {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+/* ─── Points banner ─────────────────────────────── */
+
+.points-banner {
+  width: 100%;
+  max-width: 460px;
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.pts-earned {
+  display: inline-block;
+  padding: 8px 24px;
+  border-radius: 50px;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+
+.pts-correct {
+  background: rgba(52,211,153,0.2);
+  border: 1.5px solid rgba(52,211,153,0.5);
+  color: #34d399;
+}
+
+.pts-wrong {
+  background: rgba(248,113,113,0.15);
+  border: 1.5px solid rgba(248,113,113,0.35);
+  color: #f87171;
+}
+
+/* ─── Player guess result ───────────────────────── */
+
+.player-result-guess {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-top: 6px;
+  font-style: italic;
+}
+
+/* ─── Total scores row ──────────────────────────── */
+
+.total-scores-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  justify-content: center;
+}
+
+.score-chip {
+  background: var(--surface);
+  border: 1.5px solid;
+  border-radius: var(--radius-sm);
+  padding: 10px 20px;
+  text-align: center;
+  min-width: 100px;
+}
+
+.score-name {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.score-val {
+  display: block;
+  font-size: 1.8rem;
+  font-weight: 900;
+  color: var(--text);
+}
+
+.score-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* ─── Final scores (game over) ──────────────────── */
+
+.final-winner {
+  font-size: 1.8rem;
+  font-weight: 900;
+  color: var(--yellow);
+  margin: 6px 0;
+}
+
+.final-scores-display {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 1rem;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.final-score-chip strong {
+  color: var(--text);
+  font-size: 1.1rem;
+}
+
+.final-score-sep {
+  color: var(--border);
 }
 
 /* ─── Result screen ────────────────────────────── */

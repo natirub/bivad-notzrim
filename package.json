@@ -8,9 +8,10 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
-    "express": "^4.21.0",
-    "socket.io": "^4.7.5",
+    "@google/genai": "^1.44.0",
     "@google/generative-ai": "^0.21.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "socket.io": "^4.7.5"
   }
 }
