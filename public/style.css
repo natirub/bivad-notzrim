@@ -64,6 +64,31 @@ html, body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ─── Reconnect banner ──────────────────────────── */
+
+.reconnect-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 300;
+  background: rgba(251,191,36,0.15);
+  border-bottom: 1px solid rgba(251,191,36,0.45);
+  color: #fbbf24;
+  font-size: 0.88rem;
+  font-weight: 700;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+body:has(.reconnect-banner[style*="flex"]) .screen {
+  padding-top: 48px;
+}
+
 /* ─── HUD (persistent scoreboard) ──────────────── */
 
 .hud {
@@ -538,6 +563,84 @@ html, body {
   0%   { width: 15%; margin-right: 0; }
   50%  { width: 60%; }
   100% { width: 15%; margin-right: 85%; }
+}
+
+/* ─── Answer timer ──────────────────────────────── */
+
+.answer-timer {
+  margin-right: auto; /* push to end of round-header */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 2.5px solid #a78bfa;
+  background: rgba(167,139,250,0.1);
+  flex-shrink: 0;
+  transition: border-color 0.3s, background 0.3s;
+}
+
+.answer-timer.timer-urgent {
+  border-color: #f87171;
+  background: rgba(248,113,113,0.15);
+  animation: timer-pulse 0.6s ease-in-out infinite;
+}
+
+.timer-count {
+  font-size: 1rem;
+  font-weight: 900;
+  color: #a78bfa;
+  transition: color 0.3s;
+}
+
+.timer-urgent .timer-count {
+  color: #f87171;
+}
+
+@keyframes timer-pulse {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.1); }
+}
+
+/* ─── Timeout screen ─────────────────────────────── */
+
+.timeout-players {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.timeout-player-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 20px;
+  min-width: 130px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.timeout-status {
+  font-size: 0.88rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.timeout-pts-gained {
+  color: #34d399;
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+
+.timeout-pts-lost {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.88rem;
 }
 
 /* ─── Free round prompt ────────────────────────── */

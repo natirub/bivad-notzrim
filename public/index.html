@@ -10,6 +10,11 @@
 </head>
 <body>
 
+  <!-- ═══ Reconnect banner ══════════════════════════════════════════════════ -->
+  <div id="reconnect-banner" class="reconnect-banner" style="display:none">
+    <span id="reconnect-banner-text"></span>
+  </div>
+
   <!-- ═══ Persistent HUD (player names + scores) ═════════════════════════════ -->
   <div id="hud" class="hud" style="display:none">
     <div class="hud-player hud-p0">
@@ -96,6 +101,9 @@
     <div class="round-header">
       <span id="round-badge" class="round-badge">סיבוב 1 מתוך 10</span>
       <span id="round-type-tag" class="type-tag"></span>
+      <div id="answer-timer" class="answer-timer">
+        <span id="timer-count" class="timer-count">20</span>
+      </div>
     </div>
 
     <div id="category-spotlight-wrap">
@@ -118,6 +126,17 @@
     </div>
   </div>
 
+  <!-- ═══ SCREEN: Round Timeout ════════════════════════════════════════════ -->
+  <div id="s-timeout" class="screen center-all">
+    <div class="big-icon">⏰</div>
+    <h2>הזמן נגמר!</h2>
+    <div id="timeout-players" class="timeout-players"></div>
+    <div id="timeout-scores" class="total-scores-row" style="margin-top:16px"></div>
+    <button id="timeout-next-btn" class="btn-primary btn-next" onclick="App.nextRound()" style="margin-top:8px">
+      סיבוב הבא ←
+    </button>
+  </div>
+
   <!-- ═══ SCREEN: Submitted – waiting for opponent ══════════════════════════ -->
   <div id="s-submitted" class="screen center-all">
     <div class="big-icon">✅</div>
@@ -134,7 +153,6 @@
     <h2 id="gen-title">יוצרים את התמונה שלכם...</h2>
     <p id="gen-subtitle" class="subtle">הבינה המלאכותית עובדת קשה 🤖</p>
     <div class="progress-track"><div class="progress-fill"></div></div>
-    <button id="retry-btn" class="btn-secondary" style="display:none;margin-top:1.5rem" onclick="App.retryGenerate()">🔄 נסה שוב</button>
   </div>
 
   <!-- ═══ SCREEN: Guessing ══════════════════════════════════════════════════ -->

@@ -2,6 +2,15 @@
    ביחד נוצרים — Client Logic
    ══════════════════════════════════════════════ */
 
+// ─── Session persistence ──────────────────────────────────────────────────────
+// A stable ID stored in localStorage so we can reconnect after refresh/network drop
+
+let sessionId = localStorage.getItem('bvn_session');
+if (!sessionId) {
+  sessionId = Math.random().toString(36).substr(2) + Date.now().toString(36);
+  localStorage.setItem('bvn_session', sessionId);
+}
+
 const socket = io();
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -20,7 +29,7 @@ const state = {
 // ─── Screen management ────────────────────────────────────────────────────────
 
 const HUD_SCREENS = new Set([
-  's-gamestart', 's-round', 's-submitted', 's-generating', 's-guessing', 's-result'
+  's-gamestart', 's-round', 's-submitted', 's-generating', 's-guessing', 's-result', 's-timeout'
 ]);
 
 function showScreen(id) {
@@ -41,8 +50,21 @@ function updateHud(scores, roundNumber) {
     document.getElementById('hud-score1').textContent = scores[1];
   }
   if (roundNumber !== undefined) {
-    document.getElementById('hud-round').textContent = `סיבוב ${roundNumber}`;
+    document.getElementById('hud-round').textContent =
+      roundNumber ? `סיבוב ${roundNumber}` : '';
   }
+}
+
+// ─── Reconnect banner ─────────────────────────────────────────────────────────
+
+function showBanner(text) {
+  const el = document.getElementById('reconnect-banner');
+  document.getElementById('reconnect-banner-text').textContent = text;
+  el.style.display = 'flex';
+}
+
+function hideBanner() {
+  document.getElementById('reconnect-banner').style.display = 'none';
 }
 
 // ─── URL parsing ──────────────────────────────────────────────────────────────
@@ -57,6 +79,15 @@ window.addEventListener('DOMContentLoaded', () => {
   } else {
     showScreen('s-create');
     setTimeout(() => document.getElementById('create-name').focus(), 100);
+  }
+});
+
+// ─── Try to restore session on every (re)connect ─────────────────────────────
+
+socket.on('connect', () => {
+  const savedGameId = localStorage.getItem('bvn_game');
+  if (savedGameId) {
+    socket.emit('restore-session', { sessionId, gameId: savedGameId });
   }
 });
 
@@ -76,7 +107,7 @@ const App = {
     if (!name) return shake('create-name');
     state.playerName  = name;
     state.playerIndex = 0;
-    socket.emit('create-game', { playerName: name });
+    socket.emit('create-game', { playerName: name, sessionId });
   },
 
   joinGame() {
@@ -84,7 +115,9 @@ const App = {
     if (!name) return shake('join-name');
     state.playerName  = name;
     state.playerIndex = 1;
-    socket.emit('join-game', { gameId: urlGameId, playerName: name });
+    state.gameId      = (urlGameId || '').toUpperCase().trim();
+    localStorage.setItem('bvn_game', state.gameId);
+    socket.emit('join-game', { gameId: urlGameId, playerName: name, sessionId });
   },
 
   copyLink() {
@@ -115,11 +148,12 @@ const App = {
     document.getElementById('submit-btn').disabled = true;
     input.disabled = true;
 
+    stopAnswerTimer();
     socket.emit('submit-answer', { answer });
 
     const opName = state.opponentName || 'השחקן השני';
-    document.getElementById('submitted-title').textContent    = 'התשובה שלך נשלחה!';
-    document.getElementById('waiting-for-text').textContent   = `ממתין ל${opName}...`;
+    document.getElementById('submitted-title').textContent  = 'התשובה שלך נשלחה!';
+    document.getElementById('waiting-for-text').textContent = `ממתין ל${opName}...`;
     showScreen('s-submitted');
   },
 
@@ -144,17 +178,6 @@ const App = {
     const btn = document.getElementById('next-btn');
     btn.disabled    = true;
     btn.textContent = 'ממתין...';
-  },
-
-  retryGenerate() {
-    const btn = document.getElementById('retry-btn');
-    btn.disabled    = true;
-    btn.textContent = 'שולח בקשה...';
-    socket.emit('retry-generate');
-    setTimeout(() => {
-      btn.disabled    = false;
-      btn.textContent = '🔄 נסה שוב';
-    }, 10000);
   },
 
   openLightbox(src) {
@@ -187,11 +210,67 @@ shakeStyle.textContent = `
 `;
 document.head.appendChild(shakeStyle);
 
-// ─── Socket events ────────────────────────────────────────────────────────────
+// ─── Session events ───────────────────────────────────────────────────────────
+
+socket.on('session-restored', ({ playerIndex, players, scores, phase }) => {
+  hideBanner();
+
+  state.playerIndex  = playerIndex;
+  state.playerName   = players[playerIndex];
+  state.opponentName = players[1 - playerIndex];
+
+  // Restore HUD
+  document.getElementById('hud-name0').textContent = players[0];
+  document.getElementById('hud-name1').textContent = players[1];
+  updateHud(scores);
+
+  // If pregame, show the ready screen again (player must re-click ready)
+  if (phase === 'pregame') {
+    document.getElementById('players-vs').innerHTML = `
+      <div class="player-chip" style="border-color:#a78bfa">${players[0]}</div>
+      <div class="vs-text">VS</div>
+      <div class="player-chip" style="border-color:#22d3ee">${players[1]}</div>
+    `;
+    const btn = document.getElementById('ready-btn');
+    btn.disabled    = false;
+    btn.textContent = 'מוכן! בואו נתחיל 🚀';
+    document.getElementById('ready-status').textContent = '';
+    showScreen('s-gamestart');
+  }
+  // For all other phases the subsequent resync event (round-start / generating / etc.)
+  // will navigate to the correct screen automatically.
+});
+
+socket.on('session-not-found', () => {
+  // Game no longer exists — clear saved data and let player start fresh
+  localStorage.removeItem('bvn_game');
+});
+
+// Shown when we reconnect but had already submitted before the drop
+socket.on('already-submitted', () => {
+  const opName = state.opponentName || 'השחקן השני';
+  document.getElementById('submitted-title').textContent  = 'ממשיכים מאיפה שעצרנו...';
+  document.getElementById('waiting-for-text').textContent = `ממתין ל${opName}...`;
+  showScreen('s-submitted');
+});
+
+// ─── Opponent connection events ───────────────────────────────────────────────
+
+socket.on('opponent-temp-disconnect', () => {
+  const opName = state.opponentName || 'השחקן השני';
+  showBanner(`⏳ ${opName} התנתק. ממתין שיחזור (עד 45 שניות)...`);
+});
+
+socket.on('opponent-reconnected', () => {
+  hideBanner();
+});
+
+// ─── Game events ──────────────────────────────────────────────────────────────
 
 socket.on('game-created', ({ gameId }) => {
   state.gameId    = gameId;
   state.shareLink = `${location.origin}?game=${gameId}`;
+  localStorage.setItem('bvn_game', gameId);
   document.getElementById('share-link-text').textContent = state.shareLink;
   showScreen('s-waiting');
 });
@@ -199,7 +278,6 @@ socket.on('game-created', ({ gameId }) => {
 socket.on('game-start', ({ players }) => {
   state.opponentName = players[1 - state.playerIndex];
 
-  // Populate HUD
   document.getElementById('hud-name0').textContent = players[0];
   document.getElementById('hud-name1').textContent = players[1];
   updateHud([0, 0], '');
@@ -210,7 +288,6 @@ socket.on('game-start', ({ players }) => {
     <div class="player-chip" style="border-color:#22d3ee">${players[1]}</div>
   `;
 
-  // Reset ready button in case of rematch
   const btn = document.getElementById('ready-btn');
   btn.disabled    = false;
   btn.textContent = 'מוכן! בואו נתחיל 🚀';
@@ -258,6 +335,7 @@ socket.on('round-start', ({ roundNumber, totalRounds, type, category }) => {
 
   showScreen('s-round');
   setTimeout(() => input.focus(), 300);
+  startAnswerTimer(20);
 });
 
 socket.on('opponent-answered', () => {
@@ -266,7 +344,29 @@ socket.on('opponent-answered', () => {
 
 // ─── Generating ───────────────────────────────────────────────────────────────
 
-let _retryTimer = null;
+// ─── Answer countdown timer ───────────────────────────────────────────────────
+
+let _answerTimerInterval = null;
+
+function startAnswerTimer(seconds) {
+  clearInterval(_answerTimerInterval);
+  let remaining = seconds;
+  const countEl = document.getElementById('timer-count');
+  const timerEl = document.getElementById('answer-timer');
+  countEl.textContent = remaining;
+  timerEl.className   = 'answer-timer';
+
+  _answerTimerInterval = setInterval(() => {
+    remaining--;
+    countEl.textContent = remaining;
+    if (remaining <= 5) timerEl.className = 'answer-timer timer-urgent';
+    if (remaining <= 0) clearInterval(_answerTimerInterval);
+  }, 1000);
+}
+
+function stopAnswerTimer() {
+  clearInterval(_answerTimerInterval);
+}
 
 function resetGeneratingScreen() {
   document.getElementById('gen-title').textContent    = 'יוצרים את התמונה שלכם...';
@@ -274,13 +374,8 @@ function resetGeneratingScreen() {
 }
 
 socket.on('generating', () => {
+  stopAnswerTimer();
   resetGeneratingScreen();
-  const btn = document.getElementById('retry-btn');
-  btn.style.display = 'none';
-  btn.disabled      = false;
-  btn.textContent   = '🔄 נסה שוב';
-  clearTimeout(_retryTimer);
-  _retryTimer = setTimeout(() => { btn.style.display = 'inline-block'; }, 30000);
   showScreen('s-generating');
 });
 
@@ -289,8 +384,6 @@ socket.on('generation-retrying', ({ attempt, max }) => {
 });
 
 socket.on('generation-failed', () => {
-  clearTimeout(_retryTimer);
-  document.getElementById('retry-btn').style.display = 'none';
   document.getElementById('gen-title').textContent    = '😔 לא הצלחנו ליצור תמונה';
   document.getElementById('gen-subtitle').textContent = 'תנסו לנסח את התשובות מחדש...';
   setTimeout(() => {
@@ -305,15 +398,57 @@ socket.on('generation-failed', () => {
   }, 2500);
 });
 
+// ─── Round timeout ────────────────────────────────────────────────────────────
+
+socket.on('round-timeout', (data) => {
+  stopAnswerTimer();
+
+  // Player cards: who answered, who didn't
+  document.getElementById('timeout-players').innerHTML =
+    data.players.map((p, i) => {
+      const color = i === 0 ? '#a78bfa' : '#22d3ee';
+      const icon  = p.timedOut ? '⏰ לא ענה בזמן' : '✅ ענה בזמן';
+      const pts   = p.timedOut ? `<span class="timeout-pts-lost">−0</span>` : `<span class="timeout-pts-gained">+${2} נקודות!</span>`;
+      return `
+        <div class="timeout-player-card" style="border-top: 3px solid ${color}">
+          <div class="player-result-name">${p.name}</div>
+          <div class="timeout-status">${icon}</div>
+          <div>${pts}</div>
+        </div>
+      `;
+    }).join('');
+
+  // Scores
+  const [p0, p1] = data.players;
+  document.getElementById('timeout-scores').innerHTML = `
+    <div class="score-chip" style="border-color:#a78bfa">
+      <span class="score-name">${p0.name}</span>
+      <span class="score-val">${data.scores[0]}</span>
+    </div>
+    <div class="score-label">ניקוד</div>
+    <div class="score-chip" style="border-color:#22d3ee">
+      <span class="score-name">${p1.name}</span>
+      <span class="score-val">${data.scores[1]}</span>
+    </div>
+  `;
+
+  updateHud(data.scores, state.currentRound);
+
+  const nextBtn = document.getElementById('timeout-next-btn');
+  nextBtn.disabled    = false;
+  nextBtn.textContent = data.roundNumber >= 10 ? '🏆 ראה מי ניצח!' : `סיבוב ${data.roundNumber + 1} ←`;
+  if (data.roundNumber >= 10) nextBtn.classList.add('btn-winner');
+  else nextBtn.classList.remove('btn-winner');
+
+  showScreen('s-timeout');
+});
+
 // ─── Guess phase ──────────────────────────────────────────────────────────────
 
 socket.on('guess-phase', ({ roundNumber, imageUrl, myAnswer }) => {
-  clearTimeout(_retryTimer);
-  document.getElementById('retry-btn').style.display = 'none';
-
-  document.getElementById('guess-round-badge').textContent  = `סיבוב ${roundNumber}`;
-  document.getElementById('guess-img').src                  = imageUrl;
-  document.getElementById('my-answer-reminder').textContent = myAnswer;
+  document.getElementById('guess-round-badge').textContent   = `סיבוב ${roundNumber}`;
+  document.getElementById('guess-img').src                   = imageUrl;
+  document.getElementById('my-answer-reminder').textContent  = myAnswer;
   document.getElementById('opponent-name-guess').textContent = state.opponentName || 'השחקן השני';
 
   const input = document.getElementById('guess-input');
@@ -334,16 +469,12 @@ socket.on('opponent-guessed', () => {
 // ─── Round result ─────────────────────────────────────────────────────────────
 
 socket.on('round-result', (data) => {
-  clearTimeout(_retryTimer);
-  document.getElementById('retry-btn').style.display = 'none';
   state.results.push(data);
 
   document.getElementById('result-round-badge').textContent = `סיבוב ${data.roundNumber}`;
 
-  // Update HUD scores
   updateHud(data.scores);
 
-  // Image
   const img   = document.getElementById('result-img');
   const noImg = document.getElementById('result-no-img');
   if (data.imageUrl) {
@@ -356,14 +487,12 @@ socket.on('round-result', (data) => {
     noImg.style.display = 'flex';
   }
 
-  // Points banner
   const myPts = data.pointsThisRound[state.playerIndex];
   const banner = document.getElementById('result-points-banner');
   banner.innerHTML = myPts > 0
     ? `<span class="pts-earned pts-correct">+${myPts} נקודות! ניחשת נכון 🎯</span>`
     : `<span class="pts-earned pts-wrong">לא ניחשת נכון הפעם 😅</span>`;
 
-  // Player cards with guess results
   document.getElementById('result-players').innerHTML =
     data.players.map((p, i) => {
       const color     = i === 0 ? '#a78bfa' : '#22d3ee';
@@ -379,7 +508,6 @@ socket.on('round-result', (data) => {
       `;
     }).join('');
 
-  // Running totals
   const [p0, p1] = data.players;
   document.getElementById('result-total-scores').innerHTML = `
     <div class="score-chip" style="border-color:#a78bfa">
@@ -393,7 +521,6 @@ socket.on('round-result', (data) => {
     </div>
   `;
 
-  // Next button
   const nextBtn = document.getElementById('next-btn');
   nextBtn.disabled = false;
   if (data.roundNumber >= 10) {
@@ -410,6 +537,7 @@ socket.on('round-result', (data) => {
 // ─── Game over ────────────────────────────────────────────────────────────────
 
 socket.on('game-over', ({ results, scores, players }) => {
+  localStorage.removeItem('bvn_game');
   buildGallery(results.length ? results : state.results);
 
   const [s0, s1] = scores || [0, 0];
@@ -429,6 +557,19 @@ socket.on('game-over', ({ results, scores, players }) => {
 
   showScreen('s-gameover');
   launchFireworks();
+});
+
+// ─── Fatal disconnect (grace period expired) ──────────────────────────────────
+
+socket.on('opponent-disconnected', () => {
+  hideBanner();
+  document.getElementById('error-msg').textContent = '😔 השחקן השני התנתק מהמשחק';
+  showScreen('s-error');
+});
+
+socket.on('error', ({ msg }) => {
+  document.getElementById('error-msg').textContent = msg;
+  showScreen('s-error');
 });
 
 // ─── Fireworks ────────────────────────────────────────────────────────────────
@@ -455,11 +596,7 @@ function launchFireworks() {
         const color = colors[Math.floor(Math.random() * colors.length)];
         const dist  = 55 + Math.random() * 55;
         const angle = (p / PARTICLES) * 360;
-        particle.style.cssText = `
-          --color: ${color};
-          --angle: ${angle}deg;
-          --dist: ${dist}px;
-        `;
+        particle.style.cssText = `--color:${color};--angle:${angle}deg;--dist:${dist}px;`;
         burst.appendChild(particle);
       }
 
@@ -467,7 +604,6 @@ function launchFireworks() {
     }, b * 500);
   }
 
-  // Second wave
   setTimeout(() => launchFireworksWave(container, colors, 5), BURSTS * 500 + 200);
 }
 
@@ -494,18 +630,6 @@ function launchFireworksWave(container, colors, count) {
     }, b * 350);
   }
 }
-
-// ─── Connection events ────────────────────────────────────────────────────────
-
-socket.on('opponent-disconnected', () => {
-  document.getElementById('error-msg').textContent = '😔 השחקן השני התנתק מהמשחק';
-  showScreen('s-error');
-});
-
-socket.on('error', ({ msg }) => {
-  document.getElementById('error-msg').textContent = msg;
-  showScreen('s-error');
-});
 
 // ─── Gallery builder ──────────────────────────────────────────────────────────
 

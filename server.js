@@ -30,11 +30,13 @@ const CAT_EN = {
   'אוכל':       'food'
 };
 
-const TOTAL_ROUNDS    = 10;
-const SAME_CAT_ROUNDS = 3;   // rounds 1-3: same category
-const DIFF_CAT_ROUNDS = 3;   // rounds 4-6: different category per player
-                              // rounds 7-10: free (no category)
-const GUESS_POINTS    = 5;
+const TOTAL_ROUNDS       = 10;
+const SAME_CAT_ROUNDS    = 3;
+const DIFF_CAT_ROUNDS    = 3;
+const GUESS_POINTS       = 5;
+const DISCONNECT_GRACE   = 45_000; // ms before giving up on a disconnected player
+const ANSWER_TIMEOUT_MS  = 20_000; // ms to answer each round
+const TIMEOUT_POINTS     = 2;      // points awarded to opponent when player times out
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,13 +56,9 @@ function generateId() {
 function buildRounds() {
   const s1 = shuffle(CATEGORIES);
   const rounds = [];
-
-  // Rounds 1-3: same category
   for (let i = 0; i < SAME_CAT_ROUNDS; i++) {
     rounds.push({ type: 'same', category: s1[i] });
   }
-
-  // Rounds 4-6: different category per player
   const s2 = shuffle(CATEGORIES);
   for (let i = 0; i < DIFF_CAT_ROUNDS; i++) {
     rounds.push({
@@ -69,13 +67,10 @@ function buildRounds() {
       category1: s2[(i * 2 + 1) % s2.length]
     });
   }
-
-  // Rounds 7-10: free
   const freeRounds = TOTAL_ROUNDS - SAME_CAT_ROUNDS - DIFF_CAT_ROUNDS;
   for (let i = 0; i < freeRounds; i++) {
     rounds.push({ type: 'free' });
   }
-
   return rounds;
 }
 
@@ -127,20 +122,23 @@ async function generateImage(prompt, gameId) {
   throw lastErr;
 }
 
-// ─── Game state ───────────────────────────────────────────────────────────────
+// ─── Game & session state ─────────────────────────────────────────────────────
 
-const games = {};
+const games    = {};
+const sessions = {}; // sessionId → { gameId, playerIndex }
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 
 io.on('connection', (socket) => {
 
-  socket.on('create-game', ({ playerName }) => {
+  // ── Create game ──────────────────────────────────────────────────────────────
+  socket.on('create-game', ({ playerName, sessionId }) => {
     const gameId = generateId();
     games[gameId] = {
       id: gameId,
       status: 'waiting',
-      players: [{ id: socket.id, name: playerName.trim() }],
+      phase: 'pregame',
+      players: [{ id: socket.id, name: playerName.trim(), sessionId }],
       rounds: buildRounds(),
       currentRound: 0,
       answers: {},
@@ -150,35 +148,86 @@ io.on('connection', (socket) => {
       _advancing: false,
       _generating: false,
       _pendingResult: null,
-      _readyCount: 0
+      _readyCount: 0,
+      _disconnectTimers: [null, null],
+      _answerTimer: null
     };
 
-    socket.join(gameId);
-    socket.data.gameId = gameId;
-    socket.data.playerIndex = 0;
+    if (sessionId) sessions[sessionId] = { gameId, playerIndex: 0 };
 
-    socket.emit('game-created', { gameId, playerName: playerName.trim() });
+    socket.join(gameId);
+    socket.data.gameId       = gameId;
+    socket.data.playerIndex  = 0;
+
+    socket.emit('game-created', { gameId });
   });
 
-  socket.on('join-game', ({ gameId, playerName }) => {
-    const id = (gameId || '').toUpperCase().trim();
+  // ── Join game ────────────────────────────────────────────────────────────────
+  socket.on('join-game', ({ gameId, playerName, sessionId }) => {
+    const id   = (gameId || '').toUpperCase().trim();
     const game = games[id];
 
-    if (!game)                  return socket.emit('error', { msg: 'משחק לא נמצא. בדוק את הקישור.' });
+    if (!game)                    return socket.emit('error', { msg: 'משחק לא נמצא. בדוק את הקישור.' });
     if (game.players.length >= 2) return socket.emit('error', { msg: 'המשחק כבר מלא.' });
     if (game.status !== 'waiting') return socket.emit('error', { msg: 'המשחק כבר התחיל.' });
 
-    game.players.push({ id: socket.id, name: playerName.trim() });
+    game.players.push({ id: socket.id, name: playerName.trim(), sessionId });
     game.status = 'playing';
 
+    if (sessionId) sessions[sessionId] = { gameId: id, playerIndex: 1 };
+
     socket.join(id);
-    socket.data.gameId = id;
+    socket.data.gameId      = id;
     socket.data.playerIndex = 1;
 
     io.to(id).emit('game-start', { players: game.players.map(p => p.name) });
-    // Wait for both players to click "ready" before starting round 1
   });
 
+  // ── Restore session after refresh / network drop ─────────────────────────────
+  socket.on('restore-session', ({ sessionId, gameId }) => {
+    const session = sessions[sessionId];
+    if (!session || session.gameId !== gameId) {
+      socket.emit('session-not-found');
+      return;
+    }
+
+    const game = games[gameId];
+    if (!game) {
+      delete sessions[sessionId];
+      socket.emit('session-not-found');
+      return;
+    }
+
+    const { playerIndex } = session;
+
+    // Cancel any pending disconnect timer for this player
+    if (game._disconnectTimers[playerIndex]) {
+      clearTimeout(game._disconnectTimers[playerIndex]);
+      game._disconnectTimers[playerIndex] = null;
+    }
+
+    // Update the socket reference
+    game.players[playerIndex].id = socket.id;
+    socket.data.gameId      = gameId;
+    socket.data.playerIndex = playerIndex;
+    socket.join(gameId);
+
+    // Notify opponent they're back
+    socket.to(gameId).emit('opponent-reconnected');
+
+    // Send current state so client can rebuild
+    socket.emit('session-restored', {
+      playerIndex,
+      players: game.players.map(p => p.name),
+      scores:  game.scores,
+      phase:   game.phase
+    });
+
+    // Then re-emit the phase-specific event so client lands on the right screen
+    resyncPlayer(socket, game, playerIndex);
+  });
+
+  // ── Ready ────────────────────────────────────────────────────────────────────
   socket.on('player-ready', () => {
     const { gameId } = socket.data;
     const game = games[gameId];
@@ -189,6 +238,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── Submit answer ────────────────────────────────────────────────────────────
   socket.on('submit-answer', ({ answer }) => {
     const { gameId, playerIndex } = socket.data;
     const game = games[gameId];
@@ -202,10 +252,13 @@ io.on('connection', (socket) => {
 
     const ans = game.answers[ri];
     if (ans[0] !== undefined && ans[1] !== undefined) {
+      clearTimeout(game._answerTimer);
+      game._answerTimer = null;
       processRound(gameId);
     }
   });
 
+  // ── Submit guess ─────────────────────────────────────────────────────────────
   socket.on('submit-guess', ({ guess }) => {
     const { gameId, playerIndex } = socket.data;
     const game = games[gameId];
@@ -223,12 +276,15 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── Next round ───────────────────────────────────────────────────────────────
   socket.on('next-round', () => {
     const { gameId } = socket.data;
     const game = games[gameId];
     if (!game || game._advancing) return;
 
     game._advancing = true;
+    clearTimeout(game._answerTimer);
+    game._answerTimer = null;
     game.currentRound++;
 
     if (game.currentRound >= TOTAL_ROUNDS) {
@@ -245,30 +301,35 @@ io.on('connection', (socket) => {
     setTimeout(() => { game._advancing = false; }, 800);
   });
 
-  socket.on('retry-generate', () => {
-    const { gameId } = socket.data;
-    const game = games[gameId];
-    if (!game || game.status !== 'playing') return;
-    const ri = game.currentRound;
-    const ans = game.answers[ri];
-    if (!ans || ans[0] === undefined || ans[1] === undefined) return;
-    io.to(gameId).emit('generating');
-    processRound(gameId);
-  });
-
+  // ── Disconnect ───────────────────────────────────────────────────────────────
   socket.on('disconnect', () => {
-    const { gameId } = socket.data;
-    if (!gameId || !games[gameId]) return;
-    socket.to(gameId).emit('opponent-disconnected');
+    const { gameId, playerIndex } = socket.data;
+    if (gameId === undefined || !games[gameId]) return;
+
+    const game = games[gameId];
+
+    // Notify opponent but don't end the game yet — give a grace period
+    socket.to(gameId).emit('opponent-temp-disconnect');
+
+    game._disconnectTimers[playerIndex] = setTimeout(() => {
+      // Still gone after grace period — end the game
+      io.to(gameId).emit('opponent-disconnected');
+      delete games[gameId];
+    }, DISCONNECT_GRACE);
   });
 });
 
 // ─── Round logic ──────────────────────────────────────────────────────────────
 
 function startRound(gameId) {
-  const game = games[gameId];
-  const round = game.rounds[game.currentRound];
+  const game        = games[gameId];
+  const round       = game.rounds[game.currentRound];
   const roundNumber = game.currentRound + 1;
+
+  game.phase = 'answer';
+
+  // Start the answer countdown
+  game._answerTimer = setTimeout(() => handleAnswerTimeout(gameId), ANSWER_TIMEOUT_MS);
 
   if (round.type === 'same') {
     io.to(gameId).emit('round-start', {
@@ -285,7 +346,6 @@ function startRound(gameId) {
       });
     });
   } else {
-    // free round
     io.to(gameId).emit('round-start', {
       roundNumber, totalRounds: TOTAL_ROUNDS,
       type: 'free'
@@ -297,6 +357,7 @@ async function processRound(gameId) {
   const game = games[gameId];
   if (game._generating) return;
   game._generating = true;
+  game.phase       = 'generating';
 
   const ri    = game.currentRound;
   const round = game.rounds[ri];
@@ -328,7 +389,6 @@ async function processRound(gameId) {
       ]
     };
   } else {
-    // free
     prompt = `create a single something completely new and creative that assembles "${ans[0]}" and "${ans[1]}", 3d animated style, vibrant colors, white background and no text`;
     resultData = {
       roundNumber: ri + 1, type: 'free',
@@ -344,15 +404,16 @@ async function processRound(gameId) {
   } catch (err) {
     console.error(`[Round ${ri + 1}] All attempts failed:`, err.message);
     game._generating = false;
+    game.phase       = 'answer';
     game.answers[ri] = {};
     io.to(gameId).emit('generation-failed', { roundNumber: ri + 1 });
     return;
   }
 
-  game._generating = false;
+  game._generating  = false;
+  game.phase        = 'guessing';
   game._pendingResult = resultData;
 
-  // Send each player into guess phase with the image + their own answer as reminder
   const sockets = getGameSockets(gameId);
   sockets.forEach((s, idx) => {
     if (!s) return;
@@ -370,30 +431,132 @@ function resolveGuesses(gameId) {
   const ans  = game.answers[ri];
   const g    = game.guesses[ri];
 
-  const norm = s => (s || '').trim().toLowerCase();
-  const correct0 = norm(g[0]) === norm(ans[1]); // p0 guesses p1's answer
-  const correct1 = norm(g[1]) === norm(ans[0]); // p1 guesses p0's answer
+  const norm     = s => (s || '').trim().toLowerCase();
+  const correct0 = norm(g[0]) === norm(ans[1]);
+  const correct1 = norm(g[1]) === norm(ans[0]);
 
   if (correct0) game.scores[0] += GUESS_POINTS;
   if (correct1) game.scores[1] += GUESS_POINTS;
 
   const resultData = game._pendingResult;
   resultData.players[0].guessedCorrectly = correct0;
-  resultData.players[0].guess = g[0];
+  resultData.players[0].guess            = g[0];
   resultData.players[1].guessedCorrectly = correct1;
-  resultData.players[1].guess = g[1];
+  resultData.players[1].guess            = g[1];
   resultData.scores          = [...game.scores];
   resultData.pointsThisRound = [correct0 ? GUESS_POINTS : 0, correct1 ? GUESS_POINTS : 0];
 
+  game.phase          = 'result';
   game.results.push(resultData);
   game._pendingResult = null;
   io.to(gameId).emit('round-result', resultData);
 }
 
+// ─── Answer timeout ───────────────────────────────────────────────────────────
+
+function handleAnswerTimeout(gameId) {
+  const game = games[gameId];
+  if (!game || game.phase !== 'answer') return; // both already answered — skip
+
+  const ri  = game.currentRound;
+  const ans = game.answers[ri] || {};
+
+  const p0TimedOut = ans[0] === undefined;
+  const p1TimedOut = ans[1] === undefined;
+
+  if (p0TimedOut) game.scores[1] += TIMEOUT_POINTS;
+  if (p1TimedOut) game.scores[0] += TIMEOUT_POINTS;
+
+  const timeoutData = {
+    roundNumber: ri + 1,
+    players: game.players.map((p, i) => ({
+      name:     p.name,
+      timedOut: i === 0 ? p0TimedOut : p1TimedOut
+    })),
+    scores: [...game.scores]
+  };
+
+  game.phase             = 'timeout';
+  game._lastTimeoutData  = timeoutData;
+  io.to(gameId).emit('round-timeout', timeoutData);
+}
+
+// ─── Resync a reconnected player to the current game state ────────────────────
+
+function resyncPlayer(socket, game, playerIndex) {
+  const ri    = game.currentRound;
+  const phase = game.phase;
+
+  if (game.status === 'waiting') {
+    // Creator refreshed while waiting for player 2
+    socket.emit('game-created', { gameId: game.id });
+    return;
+  }
+
+  if (game.status === 'finished') {
+    socket.emit('game-over', {
+      results: game.results,
+      scores:  game.scores,
+      players: game.players.map(p => p.name)
+    });
+    return;
+  }
+
+  if (phase === 'pregame') {
+    // Player needs to re-click ready; decrement so the count stays correct
+    if (game._readyCount > 0) game._readyCount--;
+    // session-restored already tells the client to show gamestart
+    return;
+  }
+
+  if (phase === 'answer') {
+    const round     = game.rounds[ri];
+    const roundData = { roundNumber: ri + 1, totalRounds: TOTAL_ROUNDS, type: round.type };
+    if (round.type === 'same')      roundData.category = round.category;
+    else if (round.type === 'different') roundData.category = playerIndex === 0 ? round.category0 : round.category1;
+    socket.emit('round-start', roundData);
+    // If they already submitted before disconnecting, put them back on the waiting screen
+    if (game.answers[ri]?.[playerIndex] !== undefined) {
+      socket.emit('already-submitted');
+    }
+    return;
+  }
+
+  if (phase === 'generating') {
+    socket.emit('generating');
+    return;
+  }
+
+  if (phase === 'guessing') {
+    const result = game._pendingResult;
+    const ans    = game.answers[ri];
+    socket.emit('guess-phase', {
+      roundNumber: ri + 1,
+      imageUrl:    result.imageUrl,
+      myAnswer:    ans[playerIndex]
+    });
+    if (game.guesses[ri]?.[playerIndex] !== undefined) {
+      socket.emit('already-submitted');
+    }
+    return;
+  }
+
+  if (phase === 'result') {
+    const lastResult = game.results[game.results.length - 1];
+    if (lastResult) socket.emit('round-result', lastResult);
+    return;
+  }
+
+  if (phase === 'timeout') {
+    if (game._lastTimeoutData) socket.emit('round-timeout', game._lastTimeoutData);
+    return;
+  }
+}
+
 // ─── Socket helper ────────────────────────────────────────────────────────────
 
 function getGameSockets(gameId) {
-  const out = [null, null];
+  const out  = [null, null];
   const room = io.sockets.adapter.rooms.get(gameId);
   if (!room) return out;
   for (const sid of room) {
