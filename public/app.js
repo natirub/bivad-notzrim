@@ -414,7 +414,7 @@ socket.on('round-timeout', (data) => {
   document.getElementById('timeout-players').innerHTML =
     data.players.map((p, i) => {
       const color = i === 0 ? '#a78bfa' : '#22d3ee';
-      const icon  = p.timedOut ? '⏰ לא ענה בזמן' : '✅ ענה בזמן';
+      const icon  = p.timedOut ? '⏰ לא ענית בזמן' : '✅ ענית בזמן';
       const pts   = p.timedOut ? `<span class="timeout-pts-lost">−0</span>` : `<span class="timeout-pts-gained">+${2} נקודות!</span>`;
       return `
         <div class="timeout-player-card" style="border-top: 3px solid ${color}">
@@ -443,7 +443,7 @@ socket.on('round-timeout', (data) => {
 
   const nextBtn = document.getElementById('timeout-next-btn');
   nextBtn.disabled    = false;
-  nextBtn.textContent = data.roundNumber >= 10 ? '🏆 ראה מי ניצח!' : `סיבוב ${data.roundNumber + 1} ←`;
+  nextBtn.textContent = data.roundNumber >= 10 ? '🏆 בואו נראה מי ניצח/ה!' : `סיבוב ${data.roundNumber + 1} ←`;
   if (data.roundNumber >= 10) nextBtn.classList.add('btn-winner');
   else nextBtn.classList.remove('btn-winner');
 
@@ -531,7 +531,7 @@ socket.on('round-result', (data) => {
   const nextBtn = document.getElementById('next-btn');
   nextBtn.disabled = false;
   if (data.roundNumber >= 10) {
-    nextBtn.textContent = '🏆 ראה מי ניצח!';
+    nextBtn.textContent = '🏆 בואו נראה מי ניצח!';
     nextBtn.classList.add('btn-winner');
   } else {
     nextBtn.textContent = `סיבוב ${data.roundNumber + 1} ←`;
@@ -551,8 +551,8 @@ socket.on('game-over', ({ results, scores, players }) => {
   const [n0, n1] = players || ['שחקן 1', 'שחקן 2'];
 
   let winnerText;
-  if (s0 > s1)      winnerText = `🏆 ${n0} ניצח!`;
-  else if (s1 > s0) winnerText = `🏆 ${n1} ניצח!`;
+  if (s0 > s1)      winnerText = `🏆 ${n0} ניצח/ה!`;
+  else if (s1 > s0) winnerText = `🏆 ${n1} ניצח/ה!`;
   else              winnerText = '🤝 תיקו!';
 
   document.getElementById('final-winner').textContent = winnerText;
