@@ -297,7 +297,7 @@ socket.on('game-start', ({ players }) => {
 
   const btn = document.getElementById('ready-btn');
   btn.disabled    = false;
-  btn.textContent = 'מוכן! בואו נתחיל 🚀';
+  btn.textContent = 'מוכנים? בואו נתחיל 🚀';
   document.getElementById('ready-status').textContent = '';
 
   showScreen('s-gamestart');

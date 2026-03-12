@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ביחד נוצרים ✨</title>
+  <title>נחשו מה? ✨</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
@@ -36,37 +36,37 @@
 
   <!-- ═══ SCREEN: Create Game ════════════════════════════════════════════════ -->
   <div id="s-create" class="screen active">
-    <div class="logo">✨ ביחד נוצרים</div>
-    <div class="tagline">כל שניים יוצרים משהו חדש</div>
+    <div class="logo">✨ נחשו מה?</div>
+    <div class="tagline">נסו לנחש מה השני כתב</div>
     <div class="card">
-      <h2>צור משחק חדש</h2>
+      <h2>צרו משחק חדש</h2>
       <div class="input-group">
         <input id="create-name" type="text" placeholder="מה שמך?" maxlength="20" autocomplete="off" />
       </div>
-      <button class="btn-primary" onclick="App.createGame()">צור משחק 🎮</button>
+      <button class="btn-primary" onclick="App.createGame()">צרו משחק 🎮</button>
     </div>
   </div>
 
   <!-- ═══ SCREEN: Join Game ═════════════════════════════════════════════════ -->
   <div id="s-join" class="screen">
-    <div class="logo">✨ ביחד נוצרים</div>
-    <div class="tagline">חבר שלך מחכה לך!</div>
+    <div class="logo">✨ נחשו מה?</div>
+    <div class="tagline">חבר/ה שלך מחכה לך!</div>
     <div class="card">
-      <h2>הצטרף למשחק</h2>
+      <h2>הצטרפו למשחק</h2>
       <div class="input-group">
         <input id="join-name" type="text" placeholder="מה שמך?" maxlength="20" autocomplete="off" />
       </div>
-      <button class="btn-primary" onclick="App.joinGame()">הצטרף 🙌</button>
+      <button class="btn-primary" onclick="App.joinGame()">הצטרפו 🙌</button>
     </div>
   </div>
 
   <!-- ═══ SCREEN: Waiting for Player 2 ══════════════════════════════════════ -->
   <div id="s-waiting" class="screen">
-    <div class="logo">✨ ביחד נוצרים</div>
+    <div class="logo">נחשו מה?</div>
     <div class="card waiting-card">
       <div class="big-icon">⏳</div>
-      <h2>ממתין לשחקן שני...</h2>
-      <p class="subtle">שתף את הקישור הזה עם חבר:</p>
+      <h2>ממתינים לשחקן שני...</h2>
+      <p class="subtle">שתפו את הקישור הזה עם חבר/ה:</p>
       <div class="link-box">
         <span id="share-link-text"></span>
         <button class="copy-btn" onclick="App.copyLink()">העתק</button>
@@ -87,10 +87,10 @@
       <p>סיבובים 4–6: <strong>קטגוריה שונה</strong> לכל שחקן</p>
       <p>סיבובים 7–10: <strong>חופשי</strong> – כתבו כל מה שעולה לכם</p>
       <p class="rules-score-hint">נחשו נכון מה כתב השחקן השני = <strong>5 נקודות!</strong></p>
-      <p class="rules-score-hint">יש לכם 20 שניות אחרת היריב יקבל = <strong>2 נקודות!</strong></p>
+      <p class="rules-score-hint">יש לכם 20 שניות לכתוב מה שבראש אחרת היריב יקבל = <strong>2 נקודות!</strong></p>
     </div>
     <button id="ready-btn" class="btn-primary btn-ready" onclick="App.playerReady()">
-      מוכן! בואו נתחיל 🚀
+      מוכנים? בואו נתחיל 🚀
     </button>
     <p id="ready-status" class="subtle ready-status"></p>
   </div>
@@ -120,7 +120,7 @@
     </div>
 
     <div class="card answer-card">
-      <p class="answer-prompt">כתוב את המחשבה הראשונה שלך:</p>
+      <p class="answer-prompt">כתבו את המחשבה הראשונה שעולה לראש:</p>
       <div class="input-group">
         <input id="answer-input" type="text" placeholder="מה עולה לך בראש?" maxlength="50" autocomplete="off" />
       </div>
@@ -173,11 +173,11 @@
         <span class="reminder-label">כתבת:</span>
         <span id="my-answer-reminder" class="reminder-value"></span>
       </div>
-      <p class="answer-prompt">מה לדעתך כתב <strong id="opponent-name-guess"></strong>?</p>
+      <p class="answer-prompt">מה לדעתך כתב/ה <strong id="opponent-name-guess"></strong>?</p>
       <div class="input-group">
         <input id="guess-input" type="text" placeholder="הניחוש שלך..." maxlength="50" autocomplete="off" />
       </div>
-      <button id="guess-btn" class="btn-primary" onclick="App.submitGuess()">שלח ניחוש ✓</button>
+      <button id="guess-btn" class="btn-primary" onclick="App.submitGuess()">שלחו ניחוש ✓</button>
     </div>
   </div>
 
@@ -205,20 +205,20 @@
 
   <!-- ═══ SCREEN: Game Over / Gallery ═══════════════════════════════════════ -->
   <div id="s-gameover" class="screen">
-    <div class="logo">✨ ביחד נוצרים</div>
+    <div class="logo">✨ נחשו מה?</div>
     <h1 class="gameover-title">המשחק נגמר! 🎉</h1>
     <div id="final-winner" class="final-winner"></div>
     <div id="final-scores-display" class="final-scores-display"></div>
     <p class="subtle" style="margin-top:20px">הגלריה שלכם – 10 יצירות</p>
     <div id="gallery" class="gallery"></div>
-    <button class="btn-primary btn-restart" onclick="location.href='/'">שחק שוב 🔄</button>
+    <button class="btn-primary btn-restart" onclick="location.href='/'">שחקו שוב 🔄</button>
   </div>
 
   <!-- ═══ SCREEN: Error ═════════════════════════════════════════════════════ -->
   <div id="s-error" class="screen center-all">
     <div class="big-icon">😔</div>
     <h2 id="error-msg">שגיאה</h2>
-    <button class="btn-primary" onclick="location.href='/'">חזור לדף הבית</button>
+    <button class="btn-primary" onclick="location.href='/'">חזרה לדף הבית</button>
   </div>
 
   <!-- ═══ Lightbox ══════════════════════════════════════════════════════════ -->
